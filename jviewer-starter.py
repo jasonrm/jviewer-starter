@@ -31,20 +31,14 @@ jnlpUrl = "http://{0}/Java/jviewer.jnlp?EXTRNIP={0}&JNLPSTR=JViewer"
 jarBase = "http://{0}/Java/release/"
 mainClass = "com.ami.kvm.jviewer.JViewer"
 
-try:
-    # Python 3
-    from urllib.request import urlopen, urlretrieve, Request
-    from urllib.parse import urlencode
-    from http.client import IncompleteRead
-except ImportError:
-    # Python 2
-    from urllib import urlencode, urlretrieve
-    from urllib2 import urlopen, Request
-    class IncompleteRead(object):
-        pass
-    input = raw_input
+from urllib.request import urlopen, urlretrieve, Request
+from urllib.parse import urlencode
+from http.client import IncompleteRead
 
-import sys, os, re, subprocess, platform, getpass, zipfile
+import requests
+requests.packages.urllib3.disable_warnings()
+
+import sys, os, re, subprocess, platform, getpass, zipfile, ssl
 
 def update_jars(server):
     base = jarBase.format(server)
@@ -65,7 +59,7 @@ def update_jars(server):
 
     if not os.path.exists(path):
         os.makedirs(path)
-    for jar in ["JViewer.jar", "JViewer-SOC.jar", natives]:
+    for jar in ["JViewer.jar"]:
         jar_path = os.path.join(path, jar)
         if not os.path.exists(jar_path):
             print("downloading %s -> %s" % (base + jar, jar_path))
@@ -78,17 +72,17 @@ def update_jars(server):
     return path
 
 def run_jviewer(server, username, password, path):
-    credentials = {"WEBVAR_USERNAME": username, "WEBVAR_PASSWORD": password}
-
-    loginRequest = Request(loginUrl.format(server))
-    loginRequest.data = urlencode(credentials).encode("utf-8")
-    loginResponse = urlopen(loginRequest).read().decode("utf-8")
-    sessionCookie = re.search("'SESSION_COOKIE' : '([a-zA-Z0-9]+)'", loginResponse).group(1)
+    credentials = {
+        "WEBVAR_USERNAME": username,
+        "WEBVAR_PASSWORD": password,
+    }
+    response = requests.get(loginUrl.format(server), params=credentials, verify=False)
+    sessionCookie = re.search("SESSION_COOKIE.*:.*'([a-zA-Z0-9]+)'", response.text).group(1)
 
     jnlpRequest = Request(jnlpUrl.format(server))
     jnlpRequest.add_header("Cookie", "SessionCookie=%s" % sessionCookie)
     try:
-        jnlpResponse = urlopen(jnlpRequest).read().decode("utf-8")
+        jnlpResponse = urlopen(jnlpRequest, context=ssl._create_unverified_context()).read().decode("utf-8")
     except IncompleteRead as e:
         # The server sends a wrong Content-length header. We just ignore it
         jnlpResponse = e.partial.decode("utf-8")

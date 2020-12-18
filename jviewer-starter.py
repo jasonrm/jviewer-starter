@@ -40,6 +40,10 @@ requests.packages.urllib3.disable_warnings()
 
 import sys, os, re, subprocess, platform, getpass, zipfile, ssl
 
+unverified_context = ssl.create_default_context()
+unverified_context.check_hostname = False
+unverified_context.verify_mode = ssl.CERT_NONE
+
 def update_jars(server):
     base = jarBase.format(server)
     system = platform.system()
@@ -63,7 +67,10 @@ def update_jars(server):
         jar_path = os.path.join(path, jar)
         if not os.path.exists(jar_path):
             print("downloading %s -> %s" % (base + jar, jar_path))
-            urlretrieve(base + jar, jar_path)
+            r = requests.get(base + jar, stream=True, verify=False)
+            with open(jar_path, 'wb') as fd:
+                for chunk in r.iter_content(chunk_size=128):
+                    fd.write(chunk)
             if jar == natives:
                 print("extracting %s" % jar_path)
                 with zipfile.ZipFile(jar_path, 'r') as natives_jar:
@@ -82,7 +89,7 @@ def run_jviewer(server, username, password, path):
     jnlpRequest = Request(jnlpUrl.format(server))
     jnlpRequest.add_header("Cookie", "SessionCookie=%s" % sessionCookie)
     try:
-        jnlpResponse = urlopen(jnlpRequest, context=ssl._create_unverified_context()).read().decode("utf-8")
+        jnlpResponse = urlopen(jnlpRequest, context=unverified_context).read().decode("utf-8")
     except IncompleteRead as e:
         # The server sends a wrong Content-length header. We just ignore it
         jnlpResponse = e.partial.decode("utf-8")
